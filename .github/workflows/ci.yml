@@ -8,12 +8,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/slidebolt/*
+      GONOSUMDB: github.com/slidebolt/*
+      GONOSUMCHECK: github.com/slidebolt/*
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - name: Configure private repos
+        run: git config --global url."https://\${{ secrets.GH_PAT }}@github.com/".insteadOf "https://github.com/"
+
+      - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
