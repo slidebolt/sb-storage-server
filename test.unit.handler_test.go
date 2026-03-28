@@ -778,6 +778,9 @@ func TestDeleteRemovesPrivateSidecar(t *testing.T) {
 	if _, err := store.GetPrivate(key); err == nil {
 		t.Fatal("expected private data to be deleted")
 	}
+	if _, err := os.Stat(filepath.Dir(privatePath)); !os.IsNotExist(err) {
+		t.Fatalf("expected private sidecar directory deleted, stat err=%v", err)
+	}
 }
 
 func TestPrivateMustBeJSONObject(t *testing.T) {
@@ -855,6 +858,44 @@ func TestInternalRoundTripPersistsToSidecarAndReloads(t *testing.T) {
 	}
 	if string(got) != string(payload) {
 		t.Fatalf("reloaded internal data: got %s want %s", got, payload)
+	}
+}
+
+func TestDeleteRemovesInternalSidecarDirectory(t *testing.T) {
+	dir := t.TempDir()
+	handler, err := NewHandlerWithDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := messenger.Mock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { msg.Close() })
+	if err := handler.Register(msg); err != nil {
+		t.Fatal(err)
+	}
+	store := storage.ClientFrom(msg)
+
+	key := skey("sb-script.instances.999ff8cc52b4076f")
+	payload := json.RawMessage(`{"name":"test","status":"running"}`)
+	if err := store.SetInternal(key, payload); err != nil {
+		t.Fatal(err)
+	}
+
+	internalPath := filepath.Join(dir, "sb-script", "instances", "999ff8cc52b4076f", "999ff8cc52b4076f.internal.json")
+	if _, err := os.Stat(internalPath); err != nil {
+		t.Fatalf("expected internal sidecar on disk: %v", err)
+	}
+
+	if err := store.DeleteInternal(key); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(internalPath); !os.IsNotExist(err) {
+		t.Fatalf("expected internal sidecar deleted, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(internalPath)); !os.IsNotExist(err) {
+		t.Fatalf("expected internal sidecar directory deleted, stat err=%v", err)
 	}
 }
 

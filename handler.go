@@ -619,7 +619,7 @@ func (h *Handler) deleteFile(key string) {
 	if h.dataDir == "" {
 		return
 	}
-	os.Remove(h.keyToPath(key))
+	h.removeFileAndEmptyDir(h.keyToPath(key))
 }
 
 // deleteSidecarFile removes a key's sidecar file from disk.
@@ -627,7 +627,7 @@ func (h *Handler) deleteSidecarFile(key string) {
 	if h.dataDir == "" {
 		return
 	}
-	os.Remove(h.keyToSidecarPath(key))
+	h.removeFileAndEmptyDir(h.keyToSidecarPath(key))
 }
 
 // deletePrivateFile removes a key's private sidecar from disk.
@@ -635,7 +635,7 @@ func (h *Handler) deletePrivateFile(key string) {
 	if h.dataDir == "" {
 		return
 	}
-	os.Remove(h.keyToPrivatePath(key))
+	h.removeFileAndEmptyDir(h.keyToPrivatePath(key))
 }
 
 // deleteInternalFile removes a key's internal sidecar from disk.
@@ -643,14 +643,25 @@ func (h *Handler) deleteInternalFile(key string) {
 	if h.dataDir == "" {
 		return
 	}
-	os.Remove(h.keyToInternalPath(key))
+	h.removeFileAndEmptyDir(h.keyToInternalPath(key))
 }
 
 func (h *Handler) deleteLuaSourceFile(key string) {
 	if h.dataDir == "" {
 		return
 	}
-	os.Remove(h.keyToLuaSourcePath(key))
+	h.removeFileAndEmptyDir(h.keyToLuaSourcePath(key))
+}
+
+func (h *Handler) removeFileAndEmptyDir(p string) {
+	if err := os.Remove(p); err != nil {
+		return
+	}
+	dir := filepath.Dir(p)
+	if dir == "" || dir == "." || dir == h.dataDir {
+		return
+	}
+	_ = os.Remove(dir)
 }
 
 func (h *Handler) handle(m *messenger.Message) {
