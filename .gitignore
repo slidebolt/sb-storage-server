@@ -33,3 +33,4 @@ Thumbs.db
 dist/
 build/
 bin/
+!.env.example

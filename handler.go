@@ -737,7 +737,7 @@ func (h *Handler) handleSave(m *messenger.Message) {
 			data, ok := h.data[req.Key]
 			h.mu.RUnlock()
 			if ok {
-				h.msg.Publish("state.changed."+req.Key, data)
+				h.msg.PublishWithHeaders("state.changed."+req.Key, data, messenger.CopyHeaders(m.Headers))
 			}
 		}
 		return
@@ -768,7 +768,7 @@ func (h *Handler) handleSave(m *messenger.Message) {
 			data, ok := h.data[req.Key]
 			h.mu.RUnlock()
 			if ok {
-				h.msg.Publish("state.changed."+req.Key, data)
+				h.msg.PublishWithHeaders("state.changed."+req.Key, data, messenger.CopyHeaders(m.Headers))
 			}
 		}
 		return
@@ -807,7 +807,7 @@ func (h *Handler) handleSave(m *messenger.Message) {
 
 	// Notify subscribers that this key's state changed.
 	if h.msg != nil {
-		h.msg.Publish("state.changed."+req.Key, mergedData)
+		h.msg.PublishWithHeaders("state.changed."+req.Key, mergedData, messenger.CopyHeaders(m.Headers))
 	}
 }
 
@@ -843,7 +843,7 @@ func (h *Handler) handleSetProfile(m *messenger.Message) {
 		data, ok := h.data[key]
 		h.mu.RUnlock()
 		if ok {
-			h.msg.Publish("state.changed."+key, data)
+			h.msg.PublishWithHeaders("state.changed."+key, data, messenger.CopyHeaders(m.Headers))
 		}
 	}
 }
