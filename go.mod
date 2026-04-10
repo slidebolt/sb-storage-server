@@ -5,8 +5,8 @@ go 1.26.1
 require (
 	github.com/blevesearch/bleve/v2 v2.5.7
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/slidebolt/sb-messenger-sdk v1.0.4
-	github.com/slidebolt/sb-storage-sdk v1.0.4
+	github.com/slidebolt/sb-messenger-sdk v1.0.6
+	github.com/slidebolt/sb-storage-sdk v1.0.5
 )
 
 require (
