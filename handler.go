@@ -210,13 +210,16 @@ func (h *Handler) StartWatcher() error {
 	if err != nil {
 		return fmt.Errorf("storage: watcher: %w", err)
 	}
+	dirsWatched := 0
 	// Watch root and all existing subdirectories.
 	filepath.Walk(h.dataDir, func(p string, info os.FileInfo, err error) error {
 		if err == nil && info.IsDir() {
 			watcher.Add(p)
+			dirsWatched++
 		}
 		return nil
 	})
+	slog.Info("storage: watcher started", "data_dir", h.dataDir, "directories", dirsWatched)
 	go h.watchLoop(watcher)
 	return nil
 }
@@ -247,10 +250,12 @@ func (h *Handler) watchLoop(watcher *fsnotify.Watcher) {
 			if !ok {
 				return
 			}
+			slog.Info("storage: watcher event", "path", event.Name, "op", event.Op.String())
 			// Watch newly created subdirectories.
 			if event.Has(fsnotify.Create) {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
 					watcher.Add(event.Name)
+					slog.Info("storage: watcher added directory", "path", event.Name)
 					continue
 				}
 			}
@@ -298,7 +303,7 @@ func (h *Handler) fileUpdated(p string) {
 			}
 		}
 		h.mu.Unlock()
-		slog.Info("storage: lua source synced from disk", "key", key)
+		slog.Info("storage: lua source synced from disk", "key", key, "path", p)
 		return
 	}
 
@@ -320,7 +325,7 @@ func (h *Handler) fileUpdated(p string) {
 			}
 		}
 		h.mu.Unlock()
-		slog.Info("storage: sidecar synced from disk", "key", key)
+		slog.Info("storage: sidecar synced from disk", "key", key, "path", p)
 		return
 	}
 	if isPrivatePath(p) {
@@ -331,7 +336,7 @@ func (h *Handler) fileUpdated(p string) {
 		h.mu.Lock()
 		h.private[key] = json.RawMessage(data)
 		h.mu.Unlock()
-		slog.Info("storage: private sidecar synced from disk", "key", key)
+		slog.Info("storage: private sidecar synced from disk", "key", key, "path", p)
 		return
 	}
 	if isInternalPath(p) {
@@ -342,7 +347,7 @@ func (h *Handler) fileUpdated(p string) {
 		h.mu.Lock()
 		h.internal[key] = json.RawMessage(data)
 		h.mu.Unlock()
-		slog.Info("storage: internal sidecar synced from disk", "key", key)
+		slog.Info("storage: internal sidecar synced from disk", "key", key, "path", p)
 		return
 	}
 
@@ -363,7 +368,7 @@ func (h *Handler) fileUpdated(p string) {
 		h.index.Index(key, doc)
 	}
 	h.mu.Unlock()
-	slog.Info("storage: file synced from disk", "key", key)
+	slog.Info("storage: file synced from disk", "key", key, "path", p)
 }
 
 func (h *Handler) fileRemoved(p string) {
@@ -385,7 +390,7 @@ func (h *Handler) fileRemoved(p string) {
 			}
 		}
 		h.mu.Unlock()
-		slog.Info("storage: lua source removed from disk", "key", key)
+		slog.Info("storage: lua source removed from disk", "key", key, "path", p)
 		return
 	}
 
@@ -407,7 +412,7 @@ func (h *Handler) fileRemoved(p string) {
 			}
 		}
 		h.mu.Unlock()
-		slog.Info("storage: sidecar removed from disk", "key", key)
+		slog.Info("storage: sidecar removed from disk", "key", key, "path", p)
 		return
 	}
 	if isPrivatePath(p) {
@@ -418,7 +423,7 @@ func (h *Handler) fileRemoved(p string) {
 		h.mu.Lock()
 		delete(h.private, key)
 		h.mu.Unlock()
-		slog.Info("storage: private sidecar removed from disk", "key", key)
+		slog.Info("storage: private sidecar removed from disk", "key", key, "path", p)
 		return
 	}
 	if isInternalPath(p) {
@@ -429,7 +434,7 @@ func (h *Handler) fileRemoved(p string) {
 		h.mu.Lock()
 		delete(h.internal, key)
 		h.mu.Unlock()
-		slog.Info("storage: internal sidecar removed from disk", "key", key)
+		slog.Info("storage: internal sidecar removed from disk", "key", key, "path", p)
 		return
 	}
 
@@ -442,7 +447,7 @@ func (h *Handler) fileRemoved(p string) {
 	delete(h.data, key)
 	h.index.Delete(key)
 	h.mu.Unlock()
-	slog.Info("storage: file removed from disk", "key", key)
+	slog.Info("storage: file removed from disk", "key", key, "path", p)
 }
 
 // keyToPath converts "esphome.living_room.light_001" →
@@ -778,7 +783,15 @@ func (h *Handler) handleSave(m *messenger.Message) {
 	// and merge with the existing sidecar for the in-memory view.
 	saveData := req.Data   // what goes to disk
 	mergedData := req.Data // what goes to memory/index/events
-	saveData = stripUserFields(req.Data)
+	// Extract inline "private" blob before any other stripping. A Save
+	// payload may carry plugin-owned secrets (e.g. device credentials)
+	// under the "private" top-level key; route them to the private sidecar
+	// so they never reach h.data / search / state.changed events.
+	privateBlob, hasPrivate := extractPrivateField(req.Data)
+	if hasPrivate {
+		saveData = stripPrivateField(saveData)
+	}
+	saveData = stripUserFields(saveData)
 	luaSource, hasLuaSource := extractLuaSource(req.Key, saveData)
 	if hasLuaSource {
 		saveData = stripSourceField(saveData)
@@ -786,6 +799,9 @@ func (h *Handler) handleSave(m *messenger.Message) {
 
 	h.mu.Lock()
 	h.state[req.Key] = saveData
+	if hasPrivate {
+		h.private[req.Key] = privateBlob
+	}
 	if hasLuaSource {
 		h.source[req.Key] = luaSource
 	}
@@ -800,6 +816,9 @@ func (h *Handler) handleSave(m *messenger.Message) {
 	h.mu.Unlock()
 
 	h.writeFile(req.Key, saveData)
+	if hasPrivate {
+		h.writePrivateFile(req.Key, privateBlob)
+	}
 	if hasLuaSource {
 		h.writeLuaSourceFile(req.Key, luaSource)
 	}
@@ -1122,6 +1141,40 @@ func stripUserFields(data json.RawMessage) json.RawMessage {
 	if !changed {
 		return data
 	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return data
+	}
+	return out
+}
+
+// extractPrivateField returns the raw value of the top-level "private" key
+// in data, if present. The second return is false when the key is absent
+// or the payload is not a JSON object.
+func extractPrivateField(data json.RawMessage) (json.RawMessage, bool) {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil {
+		return nil, false
+	}
+	v, ok := m["private"]
+	if !ok || len(v) == 0 {
+		return nil, false
+	}
+	return v, true
+}
+
+// stripPrivateField removes the top-level "private" key from a JSON object.
+// Returns data unchanged if the payload is not a JSON object or does not
+// contain a "private" key.
+func stripPrivateField(data json.RawMessage) json.RawMessage {
+	var m map[string]json.RawMessage
+	if json.Unmarshal(data, &m) != nil {
+		return data
+	}
+	if _, ok := m["private"]; !ok {
+		return data
+	}
+	delete(m, "private")
 	out, err := json.Marshal(m)
 	if err != nil {
 		return data
