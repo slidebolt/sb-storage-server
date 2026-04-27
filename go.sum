@@ -82,8 +82,8 @@ github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZb
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/slidebolt/sb-messenger-sdk v1.0.7 h1:1U9e8Ele4+++enzSUGNRJLrbH7dyNgSWrVOymd5FoUQ=
 github.com/slidebolt/sb-messenger-sdk v1.0.7/go.mod h1:yJxHiUgqcO/TUj9yiPkVyTwrN0/3BBy6HD17TdWPCEA=
-github.com/slidebolt/sb-storage-sdk v1.0.6 h1:o8Ci4HRO9TSOBk7ACvB3v3Yxf/HENWPyML25MgLEaQs=
-github.com/slidebolt/sb-storage-sdk v1.0.6/go.mod h1:oJmgetl2Ghu/CiOng7dtyETRT+lA2lxFDfKdTaY3Jx0=
+github.com/slidebolt/sb-storage-sdk v1.0.7 h1:OlnmF+juXGq22OQrd+9XvYJnvxW/kDxNJ5TtEnQj63E=
+github.com/slidebolt/sb-storage-sdk v1.0.7/go.mod h1:oJmgetl2Ghu/CiOng7dtyETRT+lA2lxFDfKdTaY3Jx0=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=

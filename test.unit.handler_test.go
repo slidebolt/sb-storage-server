@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	messenger "github.com/slidebolt/sb-messenger-sdk"
 	storage "github.com/slidebolt/sb-storage-sdk"
@@ -129,6 +130,115 @@ func TestOverwrite(t *testing.T) {
 	}
 	if string(got) != `{"b":255}` {
 		t.Errorf("got %s, want overwritten value", got)
+	}
+}
+
+func TestSaveRejectsMalformedJSONStatePayload(t *testing.T) {
+	sch := setup(t)
+
+	err := sch.Save(raw("plugin.device.entity", `{"type":"light"`))
+	if err == nil {
+		t.Fatal("expected malformed JSON state payload to be rejected")
+	}
+
+	if _, err := sch.Get(skey("plugin.device.entity")); err == nil {
+		t.Fatal("malformed JSON payload should not be persisted")
+	}
+
+	entries, err := sch.Search("plugin.device.*")
+	if err != nil {
+		t.Fatalf("search after rejected save: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("search entries after rejected save: %+v", entries)
+	}
+}
+
+func TestSaveRejectsZeroByteStatePayload(t *testing.T) {
+	sch := setup(t)
+
+	err := sch.Save(raw("plugin.device.empty", ``))
+	if err == nil {
+		t.Fatal("expected zero-byte state payload to be rejected")
+	}
+
+	if _, err := sch.Get(skey("plugin.device.empty")); err == nil {
+		t.Fatal("zero-byte payload should not be persisted")
+	}
+
+	entries, err := sch.Search("plugin.device.*")
+	if err != nil {
+		t.Fatalf("search after rejected zero-byte save: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("search entries after rejected zero-byte save: %+v", entries)
+	}
+}
+
+func TestHandleSaveRejectsMalformedWireRequest(t *testing.T) {
+	dir := t.TempDir()
+	handler, err := NewHandlerWithDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := messenger.Mock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { msg.Close() })
+	if err := handler.Register(msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := msg.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := msg.Request("storage.save", []byte(`{"key":"plugin.device.entity","data":`), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out response
+	if err := json.Unmarshal(resp.Data, &out); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(out.Error, "bad request") {
+		t.Fatalf("expected bad request error, got %+v", out)
+	}
+
+	store := storage.ClientFrom(msg)
+	if _, err := store.Get(skey("plugin.device.entity")); err == nil {
+		t.Fatal("malformed wire request should not persist data")
+	}
+}
+
+func TestHandleSaveRejectsZeroByteWireRequest(t *testing.T) {
+	dir := t.TempDir()
+	handler, err := NewHandlerWithDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg, err := messenger.Mock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { msg.Close() })
+	if err := handler.Register(msg); err != nil {
+		t.Fatal(err)
+	}
+	if err := msg.Flush(); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := msg.Request("storage.save", []byte{}, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out response
+	if err := json.Unmarshal(resp.Data, &out); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if !strings.Contains(out.Error, "bad request") {
+		t.Fatalf("expected bad request error, got %+v", out)
 	}
 }
 
@@ -858,6 +968,63 @@ func TestInternalRoundTripPersistsToSidecarAndReloads(t *testing.T) {
 	}
 	if string(got) != string(payload) {
 		t.Fatalf("reloaded internal data: got %s want %s", got, payload)
+	}
+}
+
+func TestSearchReloadSkipsZeroByteStateFile(t *testing.T) {
+	dir := t.TempDir()
+
+	emptyDir := filepath.Join(dir, "plugin-automation", "group", "upstairsarea")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(emptyDir, "upstairsarea.json"), []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(emptyDir, "upstairsarea.profile.json"),
+		[]byte(`{"labels":{"PluginHomeassistant":["true"],"group_type":["light"]}}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	validDir := filepath.Join(dir, "plugin-automation", "group", "basement")
+	if err := os.MkdirAll(validDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(validDir, "basement.json"),
+		[]byte(`{"id":"basement","plugin":"plugin-automation","deviceId":"group","type":"light","name":"Basement"}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	handler, err := NewHandlerWithDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := handler.LoadFromDir(); err != nil {
+		t.Fatal(err)
+	}
+
+	msg, err := messenger.Mock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { msg.Close() })
+	if err := handler.Register(msg); err != nil {
+		t.Fatal(err)
+	}
+
+	store := storage.ClientFrom(msg)
+	entries, err := store.Search("plugin-automation.group.>")
+	if err != nil {
+		t.Fatalf("search should skip zero-byte state files, got err=%v", err)
+	}
+	if len(entries) != 1 || entries[0].Key != "plugin-automation.group.basement" {
+		t.Fatalf("search entries: %+v", entries)
 	}
 }
 

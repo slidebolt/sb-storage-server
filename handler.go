@@ -141,6 +141,10 @@ func (h *Handler) LoadFromDir() (int, error) {
 		} else {
 			key := h.pathToKey(p)
 			if key != "" {
+				if len(data) == 0 || !json.Valid(data) {
+					slog.Warn("storage: skipping invalid state file during load", "key", key, "path", p)
+					return nil
+				}
 				store[key] = json.RawMessage(data)
 			}
 		}
@@ -1031,6 +1035,10 @@ func (h *Handler) handleSearch(m *messenger.Message) {
 	}
 	for key, data := range source {
 		if matchWildcard(req.Pattern, key) {
+			if !json.Valid(data) {
+				slog.Warn("storage: skipping invalid entry in search response", "key", key)
+				continue
+			}
 			entries = append(entries, storage.Entry{Key: key, Data: data})
 		}
 	}
@@ -1075,6 +1083,10 @@ func (h *Handler) handleQuery(m *messenger.Message) {
 			continue
 		}
 		if data, ok := h.data[key]; ok {
+			if !json.Valid(data) {
+				slog.Warn("storage: skipping invalid entry in query response", "key", key)
+				continue
+			}
 			entries = append(entries, storage.Entry{Key: key, Data: data})
 		}
 	}
@@ -1324,8 +1336,14 @@ type response struct {
 }
 
 func respond(m *messenger.Message, r response) {
-	data, _ := json.Marshal(r)
-	m.Respond(data)
+	data, err := json.Marshal(r)
+	if err != nil {
+		slog.Warn("storage: failed to marshal response", "err", err)
+		data = []byte(`{"ok":false,"error":"internal response marshal failed"}`)
+	}
+	if err := m.Respond(data); err != nil {
+		slog.Warn("storage: failed to send response", "err", err)
+	}
 }
 
 // matchWildcard matches dot-delimited keys against patterns.
